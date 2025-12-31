@@ -1,7 +1,6 @@
 use clap::Parser;
 use image::{ImageBuffer, Luma};
-use image_compare::Algorithm;
-use std::{fs::DirEntry, path::PathBuf};
+use std::{fs::{self, DirEntry}, path::PathBuf};
 use rayon::prelude::*;
 
 #[derive(Parser, Debug)]
@@ -18,6 +17,16 @@ struct Args {
 struct Image {
     buffer: ImageBuffer<Luma<u8>, Vec<u8>>,
     dir_entry: DirEntry
+}
+
+struct PathSimilarity {
+    path: PathBuf,
+    similarity: f64
+}
+
+struct FrameFromPool {
+    source_frame: PathBuf,
+    pool_frame: PathBuf
 }
 
 fn read_images(path: PathBuf) -> Vec<Image> {
@@ -43,24 +52,30 @@ fn main() {
     let input_frames = read_images(args.in_dir);
     let pool = read_images(args.frame_pool_dir);
 
-    for frame in input_frames {
-        for pool_frame in pool.as_slice() {
-            let diff = image_compare::gray_similarity_structure(
-                &Algorithm::MSSIMSimple, &frame.buffer, &pool_frame.buffer
-            )
-            .expect(
-                format!(
-                    "Mismatch between dimensions of {} and {}",
-                    frame.dir_entry.path().to_string_lossy(),
-                    pool_frame.dir_entry.path().to_string_lossy()
-                ).as_str()
-            );
-            println!(
-                "{} difference between {} and {}",
-                diff.score,
-                frame.dir_entry.path().to_string_lossy(),
-                pool_frame.dir_entry.file_name().to_string_lossy()
-            );
-        }
-    }
+    input_frames.par_iter()
+        .map(|f| {
+            println!("Handling {}", f.dir_entry.file_name().to_string_lossy());
+            FrameFromPool {
+                source_frame: f.dir_entry.path(),
+                pool_frame: pool.par_iter()
+                    .map(
+                        |p|
+                        PathSimilarity {
+                            path: p.dir_entry.path(),
+                            similarity: image_compare::gray_similarity_histogram(
+                                image_compare::Metric::Hellinger, &f.buffer, &p.buffer
+                            )
+                            .expect("Error comparing images.")
+                        }
+                    )
+                    .max_by(|x, y| x.similarity.abs().total_cmp(&y.similarity.abs()))
+                    .unwrap()
+                    .path
+            }
+        })
+        .for_each(|r| {
+            let _ = fs::copy(r.pool_frame, args.out_dir.join(r.source_frame.file_name().unwrap()));
+        });
+
+    println!("Done!");
 }
