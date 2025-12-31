@@ -62,10 +62,11 @@ fn main() {
                         |p|
                         PathSimilarity {
                             path: p.dir_entry.path(),
-                            similarity: image_compare::gray_similarity_histogram(
-                                image_compare::Metric::Hellinger, &f.buffer, &p.buffer
+                            similarity: image_compare::gray_similarity_structure(
+                                &image_compare::Algorithm::RootMeanSquared, &f.buffer, &p.buffer
                             )
                             .expect("Error comparing images.")
+                            .score
                         }
                     )
                     .max_by(|x, y| x.similarity.abs().total_cmp(&y.similarity.abs()))
